@@ -59,7 +59,8 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({ produc
       `💰 Valor: *${formatPrice(product.price * quantity)}*\n\n` +
       `Ainda está disponível para entrega ou retirada?`
     );
-    window.open(`https://wa.me/${rawNumber}?text=${text}`, '_blank');
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${rawNumber}&text=${text}`;
+    window.location.href = whatsappUrl;
   };
 
   const handleShare = async () => {

@@ -8,7 +8,7 @@ export const HeroBanner: React.FC = () => {
   const handleOpenWhatsApp = () => {
     const rawNumber = settings.whatsappNumber.replace(/\D/g, '');
     const message = encodeURIComponent(`Olá! Vi o catálogo da ${settings.storeName} e gostaria de tirar uma dúvida.`);
-    window.open(`https://wa.me/${rawNumber}?text=${message}`, '_blank');
+    window.location.href = `https://api.whatsapp.com/send?phone=${rawNumber}&text=${message}`;
   };
 
   return (
