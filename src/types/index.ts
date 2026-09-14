@@ -43,6 +43,7 @@ export interface StoreSettings {
   deliveryFee?: number;
   pixKey?: string;
   pixKeyType?: 'cpf' | 'cnpj' | 'telefone' | 'email' | 'aleatoria';
+  adminPassword?: string;
 }
 
 // CRM de Clientes

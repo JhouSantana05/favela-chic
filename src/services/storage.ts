@@ -89,6 +89,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   deliveryFee: 10,
   pixKey: '11999999999',
   pixKeyType: 'telefone',
+  adminPassword: '1234',
 };
 
 export const INITIAL_PRODUCTS: Product[] = [

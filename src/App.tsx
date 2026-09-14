@@ -16,12 +16,20 @@ import { DebtsView } from './components/debts/DebtsView';
 import { CashFlowView } from './components/cashflow/CashFlowView';
 import { CRMView } from './components/crm/CRMView';
 import { StockView } from './components/stock/StockView';
+import { AdminLoginModal } from './components/auth/AdminLoginModal';
 import type { AppViewMode, Product } from './types';
-import { MapPin, Phone, Sparkles } from 'lucide-react';
+import { MapPin, Phone, Sparkles, Lock } from 'lucide-react';
 
 const MainContent: React.FC = () => {
   const [viewMode, setViewMode] = useState<AppViewMode>('customer');
   const [selectedProductDetails, setSelectedProductDetails] = useState<Product | null>(null);
+
+  // Autenticação do Lojista (Dono)
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    return sessionStorage.getItem('favela_chic_admin_auth') === 'true';
+  });
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [targetModeAfterLogin, setTargetModeAfterLogin] = useState<AppViewMode>('pos');
 
   // Estado para modal de criação/edição de produto com câmera
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
@@ -37,12 +45,50 @@ const MainContent: React.FC = () => {
     setSearchQuery,
   } = useProducts();
 
+  const handleSelectMode = (mode: AppViewMode) => {
+    if (mode === 'customer') {
+      setViewMode('customer');
+      return;
+    }
+
+    // Se tentar acessar área restrita sem login
+    if (!isAdmin) {
+      setTargetModeAfterLogin(mode);
+      setIsLoginModalOpen(true);
+      return;
+    }
+
+    setViewMode(mode);
+  };
+
+  const handleLoginSuccess = () => {
+    setIsAdmin(true);
+    sessionStorage.setItem('favela_chic_admin_auth', 'true');
+    setIsLoginModalOpen(false);
+    setViewMode(targetModeAfterLogin || 'pos');
+  };
+
+  const handleLogout = () => {
+    setIsAdmin(false);
+    sessionStorage.removeItem('favela_chic_admin_auth');
+    setViewMode('customer');
+  };
+
   const handleOpenNewProduct = () => {
+    if (!isAdmin) {
+      setTargetModeAfterLogin('stock');
+      setIsLoginModalOpen(true);
+      return;
+    }
     setEditingProduct(null);
     setIsProductFormOpen(true);
   };
 
   const handleEditProduct = (prod: Product) => {
+    if (!isAdmin) {
+      setIsLoginModalOpen(true);
+      return;
+    }
     setEditingProduct(prod);
     setIsProductFormOpen(true);
   };
@@ -70,22 +116,28 @@ const MainContent: React.FC = () => {
       {/* Banner de Instalação do PWA */}
       <InstallPwaBanner />
 
-      {/* Barra de Navegação Superior com Abas ERP */}
+      {/* Barra de Navegação Superior com Abas ERP e Controle de Acesso */}
       <Header
         currentMode={viewMode}
-        onSelectMode={(mode) => setViewMode(mode)}
+        isAdmin={isAdmin}
+        onSelectMode={handleSelectMode}
         onOpenQuickAdd={handleOpenNewProduct}
+        onOpenLogin={() => {
+          setTargetModeAfterLogin('pos');
+          setIsLoginModalOpen(true);
+        }}
+        onLogout={handleLogout}
       />
 
-      {/* Conteúdo Principal com base no módulo ativo */}
+      {/* Conteúdo Principal */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
         
-        {/* 1. MÓDULO VITRINE / CATÁLOGO DO CLIENTE */}
+        {/* 1. VITRINE / CATÁLOGO PARA O CLIENTE */}
         {viewMode === 'customer' && (
           <div className="space-y-6">
             {!searchQuery && <HeroBanner />}
 
-            <div className="sticky top-28 sm:top-32 z-30 bg-zinc-950/95 backdrop-blur-sm py-2">
+            <div className="sticky top-20 sm:top-24 z-30 bg-zinc-950/95 backdrop-blur-sm py-2">
               <CategoryFilter />
             </div>
 
@@ -136,28 +188,18 @@ const MainContent: React.FC = () => {
           </div>
         )}
 
-        {/* 2. MÓDULO PDV / VENDA RÁPIDA DE BALCÃO */}
-        {viewMode === 'pos' && <POSView />}
-
-        {/* 3. MÓDULO CADERNINHO DIGITAL DE FIADO */}
-        {viewMode === 'debts' && <DebtsView />}
-
-        {/* 4. MÓDULO FLUXO DE CAIXA */}
-        {viewMode === 'cashflow' && <CashFlowView />}
-
-        {/* 5. MÓDULO CRM DE CLIENTES */}
-        {viewMode === 'crm' && <CRMView />}
-
-        {/* 6. MÓDULO CONTROLE DE ESTOQUE POR GRADE */}
-        {viewMode === 'stock' && (
+        {/* ÁREAS RESTRITAS DO LOJISTA (SÓ ACESSÍVEIS COM SENHA) */}
+        {isAdmin && viewMode === 'pos' && <POSView />}
+        {isAdmin && viewMode === 'debts' && <DebtsView />}
+        {isAdmin && viewMode === 'cashflow' && <CashFlowView />}
+        {isAdmin && viewMode === 'crm' && <CRMView />}
+        {isAdmin && viewMode === 'stock' && (
           <StockView
             onOpenNewProduct={handleOpenNewProduct}
             onEditProduct={handleEditProduct}
           />
         )}
-
-        {/* 7. PAINEL ADMIN / CONFIGURAÇÕES DA LOJA */}
-        {viewMode === 'admin' && (
+        {isAdmin && viewMode === 'admin' && (
           <AdminDashboard
             onOpenNewProduct={handleOpenNewProduct}
             onEditProduct={handleEditProduct}
@@ -202,10 +244,32 @@ const MainContent: React.FC = () => {
             </span>
           </div>
 
-          <div className="text-[11px] text-zinc-500 flex items-center gap-1">
-            <span>Favela Chic OS v2.0 •</span>
-            <Sparkles className="w-3 h-3 text-amber-500 inline" />
-            <span>PDV, Estoque, CRM & Caixa</span>
+          {/* Botão de Acesso do Lojista no Rodapé */}
+          <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+            {!isAdmin ? (
+              <button
+                onClick={() => {
+                  setTargetModeAfterLogin('pos');
+                  setIsLoginModalOpen(true);
+                }}
+                className="hover:text-amber-400 text-zinc-400 flex items-center gap-1 px-3 py-1.5 rounded-lg border border-zinc-800 hover:border-amber-500/40 transition"
+              >
+                <Lock className="w-3 h-3" />
+                <span>Área Restrita do Lojista</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleLogout}
+                className="hover:text-red-400 text-zinc-400 flex items-center gap-1 px-3 py-1.5 rounded-lg border border-zinc-800 transition"
+              >
+                <span>Bloquear Painel</span>
+              </button>
+            )}
+
+            <div className="flex items-center gap-1">
+              <span>Favela Chic OS</span>
+              <Sparkles className="w-3 h-3 text-amber-500 inline" />
+            </div>
           </div>
         </div>
       </footer>
@@ -225,6 +289,13 @@ const MainContent: React.FC = () => {
         onClose={() => setIsProductFormOpen(false)}
         onSave={handleSaveProduct}
         initialProduct={editingProduct}
+      />
+
+      {/* Modal de Login com Senha do Lojista */}
+      <AdminLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onSuccess={handleLoginSuccess}
       />
 
     </div>

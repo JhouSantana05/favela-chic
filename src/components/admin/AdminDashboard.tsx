@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Camera, Edit2, Trash2, Settings, Download, Upload, Eye, CheckCircle2, Store, Phone, MapPin, DollarSign, Shirt, Footprints, Flame, Sparkles, LayoutGrid } from 'lucide-react';
+import { Camera, Edit2, Trash2, Settings, Download, Upload, Eye, CheckCircle2, Store, Phone, MapPin, DollarSign, Shirt, Footprints, Flame, Sparkles, LayoutGrid, Lock, KeyRound } from 'lucide-react';
 import { useProducts } from '../../context/ProductContext';
 import type { Product, StoreSettings } from '../../types';
 import { exportCatalogBackup, importCatalogBackup } from '../../services/storage';
@@ -418,6 +418,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-zinc-100 focus:outline-none focus:border-amber-500"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider block mb-1">
+                Chave Pix da Loja (Para cobrança automática de fiado)
+              </label>
+              <div className="relative">
+                <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
+                <input
+                  type="text"
+                  value={storeForm.pixKey || ''}
+                  onChange={(e) => setStoreForm({ ...storeForm, pixKey: e.target.value })}
+                  placeholder="Telefone, CPF, CNPJ ou chave aleatória"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-zinc-100 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl space-y-2">
+              <label className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" /> Senha de Acesso do Lojista (Dono)
+              </label>
+              <input
+                type="text"
+                value={storeForm.adminPassword || '1234'}
+                onChange={(e) => setStoreForm({ ...storeForm, adminPassword: e.target.value })}
+                placeholder="Ex: 1234 ou sua senha secreta"
+                className="w-full bg-zinc-950 border border-amber-500/40 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-amber-400"
+                required
+              />
+              <span className="text-[11px] text-zinc-400 block">
+                Esta senha bloqueia o PDV, Fiados, Caixa, Estoque e Cadastro de Peças de clientes normais.
+              </span>
             </div>
 
             <div className="pt-3">
