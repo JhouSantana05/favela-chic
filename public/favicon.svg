@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="gold-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="40%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+    <radialGradient id="bg-grad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1c1917" />
+      <stop offset="100%" stop-color="#09090b" />
+    </radialGradient>
+  </defs>
+  <!-- Fundo Arredondado Dark Streetwear -->
+  <rect width="512" height="512" rx="110" fill="url(#bg-grad)" stroke="#f59e0b" stroke-width="8" />
+  
+  <!-- Estilização Central Favela Chic - Coroa / Monograma Urbano -->
+  <g transform="translate(64, 60)">
+    <!-- Coroa / Estilo Urbano -->
+    <path d="M 40,160 L 90,60 L 192,120 L 294,60 L 344,160 Z" fill="url(#gold-grad)" opacity="0.95" />
+    <circle cx="90" cy="50" r="14" fill="#fef08a" />
+    <circle cx="192" cy="105" r="14" fill="#fef08a" />
+    <circle cx="294" cy="50" r="14" fill="#fef08a" />
+
+    <!-- Letra FC estilizada -->
+    <text x="192" y="275" 
+          font-family="system-ui, -apple-system, sans-serif" 
+          font-size="115" 
+          font-weight="900" 
+          letter-spacing="-2"
+          text-anchor="middle" 
+          fill="#ffffff">FC</text>
+
+    <!-- Subtítulo Streetwear -->
+    <text x="192" y="325" 
+          font-family="system-ui, -apple-system, sans-serif" 
+          font-size="24" 
+          font-weight="800" 
+          letter-spacing="6" 
+          text-anchor="middle" 
+          fill="url(#gold-grad)">FAVELA CHIC</text>
+  </g>
+</svg>
