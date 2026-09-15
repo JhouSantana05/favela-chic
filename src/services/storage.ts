@@ -312,18 +312,24 @@ export const INITIAL_TRANSACTIONS: CashTransaction[] = [
 // -----------------------------------------------------------------------------
 export async function uploadImageToStorage(dataUrl: string, pathPrefix = 'products'): Promise<string> {
   // Se não for base64 (já for URL remota http...), não precisa fazer upload
-  if (!dataUrl.startsWith('data:image')) {
+  if (!dataUrl || !dataUrl.startsWith('data:image')) {
     return dataUrl;
   }
 
   try {
     const fileId = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
     const imageRef = ref(storage, `${pathPrefix}/${fileId}`);
-    await uploadString(imageRef, dataUrl, 'data_url');
+    
+    // Timeout de 4 segundos: se o bucket do Storage ainda não estiver ativo, não trava o usuário
+    const uploadTask = uploadString(imageRef, dataUrl, 'data_url');
+    await Promise.race([
+      uploadTask,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Storage timeout')), 4000))
+    ]);
     return await getDownloadURL(imageRef);
   } catch (err) {
-    console.warn('Upload de imagem no Storage falhou, usando imagem compactada em cache:', err);
-    return dataUrl; // fallback seguro para manter funcionando
+    console.warn('Storage em processo de ativação na nuvem, mantendo imagem compactada no cache local:', err);
+    return dataUrl; // fallback seguro para manter funcionando imediatamente
   }
 }
 
@@ -345,7 +351,7 @@ export async function fetchProducts(): Promise<Product[]> {
     const products = snapshot.docs.map(d => d.data() as Product);
     return products.sort((a, b) => b.createdAt - a.createdAt);
   } catch (err) {
-    console.warn('Erro ao ler produtos do Firestore, recorrendo ao cache local:', err);
+    console.warn('Firestore offline ou em ativação, recorrendo ao cache local:', err);
     const localDb = await getLocalDB();
     const products = await localDb.getAll('products');
     if (products.length === 0) {
@@ -356,27 +362,44 @@ export async function fetchProducts(): Promise<Product[]> {
 }
 
 export async function saveProduct(product: Product): Promise<void> {
-  // Envia as imagens para o Firebase Storage se forem base64
-  const cloudImages: string[] = [];
-  for (const img of product.images) {
-    const uploadedUrl = await uploadImageToStorage(img, `products/${product.id}`);
-    cloudImages.push(uploadedUrl);
-  }
-  const updatedProduct = { ...product, images: cloudImages };
-
-  // 1. Salva no Firestore
-  try {
-    await setDoc(doc(db, 'products', updatedProduct.id), updatedProduct);
-  } catch (err) {
-    console.warn('Erro ao salvar produto no Firestore, salvando no cache local:', err);
-  }
-
-  // 2. Salva no cache local (IndexedDB)
+  // 1. Salva IMEDIATAMENTE no cache local para o produto e a foto nunca se perderem
   try {
     const localDb = await getLocalDB();
-    await localDb.put('products', updatedProduct);
+    await localDb.put('products', product);
   } catch (e) {
     console.error('Erro ao salvar no cache local:', e);
+  }
+
+  // 2. Tenta fazer upload para o Storage na nuvem
+  let cloudImages = [...product.images];
+  try {
+    const uploadedImages = await Promise.all(
+      product.images.map(img => uploadImageToStorage(img, `products/${product.id}`))
+    );
+    cloudImages = uploadedImages;
+  } catch {
+    // mantém as imagens locais
+  }
+
+  const cloudProduct = { ...product, images: cloudImages };
+
+  // 3. Atualiza cache local se as imagens foram migradas para o Storage
+  if (JSON.stringify(cloudImages) !== JSON.stringify(product.images)) {
+    try {
+      const localDb = await getLocalDB();
+      await localDb.put('products', cloudProduct);
+    } catch {}
+  }
+
+  // 4. Salva no Firestore com timeout para não travar a experiência
+  try {
+    const savePromise = setDoc(doc(db, 'products', cloudProduct.id), cloudProduct);
+    await Promise.race([
+      savePromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 3500))
+    ]);
+  } catch (err) {
+    console.warn('Firestore em processo de propagação, dados salvos no cache local:', err);
   }
 }
 

@@ -74,14 +74,27 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createdAt: Date.now(),
     };
 
-    await saveProduct(newProduct);
+    // Atualização instantânea na tela
     setProducts((prev) => [newProduct, ...prev]);
+
+    try {
+      await saveProduct(newProduct);
+    } catch (e) {
+      console.warn('Erro ao salvar produto em segundo plano:', e);
+    }
+
     return newProduct;
   };
 
   const editProduct = async (updatedProduct: Product): Promise<void> => {
-    await saveProduct(updatedProduct);
+    // Atualização instantânea na tela
     setProducts((prev) => prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p)));
+
+    try {
+      await saveProduct(updatedProduct);
+    } catch (e) {
+      console.warn('Erro ao atualizar produto em segundo plano:', e);
+    }
   };
 
   const deleteProduct = async (id: string): Promise<void> => {
