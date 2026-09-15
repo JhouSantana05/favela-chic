@@ -1,6 +1,23 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Product, StoreSettings, Customer, CashTransaction, DebtRecord } from '../types';
+import type { Product, StoreSettings, Customer, CashTransaction, DebtRecord, DebtPayment } from '../types';
+import { db, storage } from './firebase';
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  setDoc,
+  deleteDoc,
+  writeBatch,
+  query,
+  orderBy,
+  onSnapshot
+} from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 
+// -----------------------------------------------------------------------------
+// 1. CONFIGURAÇÃO INDEXEDDB (CACHE LOCAL E MODO OFFLINE)
+// -----------------------------------------------------------------------------
 interface FavelaChicDB extends DBSchema {
   products: {
     key: string;
@@ -46,29 +63,29 @@ const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<FavelaChicDB>> | null = null;
 
-export function getDB() {
+export function getLocalDB() {
   if (!dbPromise) {
     dbPromise = openDB<FavelaChicDB>(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion) {
+      upgrade(dbInstance, oldVersion) {
         if (oldVersion < 1) {
-          const productStore = db.createObjectStore('products', { keyPath: 'id' });
+          const productStore = dbInstance.createObjectStore('products', { keyPath: 'id' });
           productStore.createIndex('by-category', 'category');
           productStore.createIndex('by-created', 'createdAt');
-          db.createObjectStore('settings');
+          dbInstance.createObjectStore('settings');
         }
         if (oldVersion < 2) {
-          if (!db.objectStoreNames.contains('customers')) {
-            const customerStore = db.createObjectStore('customers', { keyPath: 'id' });
+          if (!dbInstance.objectStoreNames.contains('customers')) {
+            const customerStore = dbInstance.createObjectStore('customers', { keyPath: 'id' });
             customerStore.createIndex('by-name', 'name');
             customerStore.createIndex('by-phone', 'phone');
           }
-          if (!db.objectStoreNames.contains('cash_transactions')) {
-            const cashStore = db.createObjectStore('cash_transactions', { keyPath: 'id' });
+          if (!dbInstance.objectStoreNames.contains('cash_transactions')) {
+            const cashStore = dbInstance.createObjectStore('cash_transactions', { keyPath: 'id' });
             cashStore.createIndex('by-date', 'date');
             cashStore.createIndex('by-type', 'type');
           }
-          if (!db.objectStoreNames.contains('debts')) {
-            const debtStore = db.createObjectStore('debts', { keyPath: 'id' });
+          if (!dbInstance.objectStoreNames.contains('debts')) {
+            const debtStore = dbInstance.createObjectStore('debts', { keyPath: 'id' });
             debtStore.createIndex('by-customer', 'customerId');
             debtStore.createIndex('by-status', 'status');
             debtStore.createIndex('by-due-date', 'dueDate');
@@ -80,6 +97,9 @@ export function getDB() {
   return dbPromise;
 }
 
+// -----------------------------------------------------------------------------
+// DADOS PADRÃO INICIAIS
+// -----------------------------------------------------------------------------
 export const DEFAULT_SETTINGS: StoreSettings = {
   storeName: 'Favela Chic',
   tagline: 'O melhor do Streetwear & Moda Urbana do Bairro',
@@ -182,10 +202,10 @@ export const INITIAL_PRODUCTS: Product[] = [
     inStock: true,
     isFeatured: false,
     stockByVariation: {
-      'Padrão::Preto Fosco': 8,
-      'Padrão::Verde Militar': 5,
+      'Padrão::Preto Fosco': 7,
+      'Padrão::Verde Militar': 4,
     },
-    totalStock: 13,
+    totalStock: 11,
     createdAt: Date.now() - 1000 * 60 * 60 * 12,
   }
 ];
@@ -194,9 +214,9 @@ export const INITIAL_CUSTOMERS: Customer[] = [
   {
     id: 'cust-1',
     name: 'Lucas Ferreira',
-    nickname: 'Lukinha do Grau',
+    nickname: 'Lukinha',
     phone: '5511988881111',
-    address: 'Rua das Flores, 45 (em frente à praça)',
+    address: 'Rua das Flores, 45 - Casa 2',
     defaultSize: 'G',
     shoeSize: '41',
     birthday: '1998-05-14',
@@ -238,7 +258,7 @@ export const INITIAL_DEBTS: DebtRecord[] = [
     itemsSummary: '1x Camiseta Oversized Preto (G) + 1x Boné Snapback Preto',
     totalAmount: 179.80,
     remainingAmount: 79.80,
-    dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5).toISOString().split('T')[0], // 5 dias à frente
+    dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5).toISOString().split('T')[0],
     status: 'partial',
     createdAt: Date.now() - 1000 * 60 * 60 * 24 * 5,
     payments: [
@@ -259,7 +279,7 @@ export const INITIAL_DEBTS: DebtRecord[] = [
     itemsSummary: '1x Tênis Sneaker Retro Low Chunky (40)',
     totalAmount: 289.90,
     remainingAmount: 289.90,
-    dueDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString().split('T')[0], // Vencido há 2 dias
+    dueDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString().split('T')[0],
     status: 'pending',
     createdAt: Date.now() - 1000 * 60 * 60 * 24 * 12,
     payments: []
@@ -272,30 +292,12 @@ export const INITIAL_TRANSACTIONS: CashTransaction[] = [
     type: 'in',
     category: 'Venda Balcão',
     amount: 179.80,
-    description: 'Venda: 1x Camiseta Oversized + 1x Boné',
+    description: 'Venda: 1x Camiseta Heavy + 1x Boné Snapback',
     paymentMethod: 'pix',
-    date: Date.now() - 1000 * 60 * 60 * 28,
+    date: Date.now() - 1000 * 60 * 60 * 2,
   },
   {
     id: 'tx-2',
-    type: 'out',
-    category: 'Compra Fornecedor',
-    amount: 450.00,
-    description: 'Reposição de camisetas no Brás',
-    paymentMethod: 'pix',
-    date: Date.now() - 1000 * 60 * 60 * 20,
-  },
-  {
-    id: 'tx-3',
-    type: 'in',
-    category: 'Abatimento Fiado',
-    amount: 100.00,
-    description: 'Acerto parcial de Lucas Ferreira',
-    paymentMethod: 'pix',
-    date: Date.now() - 1000 * 60 * 60 * 24,
-  },
-  {
-    id: 'tx-4',
     type: 'in',
     category: 'Venda Balcão',
     amount: 289.90,
@@ -305,30 +307,92 @@ export const INITIAL_TRANSACTIONS: CashTransaction[] = [
   }
 ];
 
-// PRODUTOS
-export async function fetchProducts(): Promise<Product[]> {
-  const db = await getDB();
-  const products = await db.getAll('products');
-  
-  if (products.length === 0) {
-    const tx = db.transaction('products', 'readwrite');
-    for (const item of INITIAL_PRODUCTS) {
-      await tx.store.put(item);
-    }
-    await tx.done;
-    return INITIAL_PRODUCTS;
+// -----------------------------------------------------------------------------
+// 2. HELPER: UPLOAD DE FOTOS PARA O FIREBASE STORAGE
+// -----------------------------------------------------------------------------
+export async function uploadImageToStorage(dataUrl: string, pathPrefix = 'products'): Promise<string> {
+  // Se não for base64 (já for URL remota http...), não precisa fazer upload
+  if (!dataUrl.startsWith('data:image')) {
+    return dataUrl;
   }
-  return products.sort((a, b) => b.createdAt - a.createdAt);
+
+  try {
+    const fileId = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
+    const imageRef = ref(storage, `${pathPrefix}/${fileId}`);
+    await uploadString(imageRef, dataUrl, 'data_url');
+    return await getDownloadURL(imageRef);
+  } catch (err) {
+    console.warn('Upload de imagem no Storage falhou, usando imagem compactada em cache:', err);
+    return dataUrl; // fallback seguro para manter funcionando
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 3. PRODUTOS (FIRESTORE + CACHE LOCAL)
+// -----------------------------------------------------------------------------
+export async function fetchProducts(): Promise<Product[]> {
+  try {
+    const snapshot = await getDocs(collection(db, 'products'));
+    if (snapshot.empty) {
+      // Primeira inicialização na nuvem: sobe os produtos de exemplo
+      const batch = writeBatch(db);
+      for (const item of INITIAL_PRODUCTS) {
+        batch.set(doc(db, 'products', item.id), item);
+      }
+      await batch.commit();
+      return INITIAL_PRODUCTS;
+    }
+    const products = snapshot.docs.map(d => d.data() as Product);
+    return products.sort((a, b) => b.createdAt - a.createdAt);
+  } catch (err) {
+    console.warn('Erro ao ler produtos do Firestore, recorrendo ao cache local:', err);
+    const localDb = await getLocalDB();
+    const products = await localDb.getAll('products');
+    if (products.length === 0) {
+      return INITIAL_PRODUCTS;
+    }
+    return products.sort((a, b) => b.createdAt - a.createdAt);
+  }
 }
 
 export async function saveProduct(product: Product): Promise<void> {
-  const db = await getDB();
-  await db.put('products', product);
+  // Envia as imagens para o Firebase Storage se forem base64
+  const cloudImages: string[] = [];
+  for (const img of product.images) {
+    const uploadedUrl = await uploadImageToStorage(img, `products/${product.id}`);
+    cloudImages.push(uploadedUrl);
+  }
+  const updatedProduct = { ...product, images: cloudImages };
+
+  // 1. Salva no Firestore
+  try {
+    await setDoc(doc(db, 'products', updatedProduct.id), updatedProduct);
+  } catch (err) {
+    console.warn('Erro ao salvar produto no Firestore, salvando no cache local:', err);
+  }
+
+  // 2. Salva no cache local (IndexedDB)
+  try {
+    const localDb = await getLocalDB();
+    await localDb.put('products', updatedProduct);
+  } catch (e) {
+    console.error('Erro ao salvar no cache local:', e);
+  }
 }
 
 export async function removeProduct(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('products', id);
+  try {
+    await deleteDoc(doc(db, 'products', id));
+  } catch (err) {
+    console.warn('Erro ao deletar no Firestore:', err);
+  }
+
+  try {
+    const localDb = await getLocalDB();
+    await localDb.delete('products', id);
+  } catch (e) {
+    console.error('Erro ao deletar no cache local:', e);
+  }
 }
 
 export async function decreaseProductStock(
@@ -336,8 +400,22 @@ export async function decreaseProductStock(
   variationKey: string,
   quantity: number
 ): Promise<void> {
-  const db = await getDB();
-  const product = await db.get('products', productId);
+  let product: Product | null = null;
+
+  try {
+    const snap = await getDoc(doc(db, 'products', productId));
+    if (snap.exists()) {
+      product = snap.data() as Product;
+    }
+  } catch {
+    // busca do local
+  }
+
+  if (!product) {
+    const localDb = await getLocalDB();
+    product = (await localDb.get('products', productId)) || null;
+  }
+
   if (!product) return;
 
   const variations = product.stockByVariation || {};
@@ -352,97 +430,263 @@ export async function decreaseProductStock(
     totalStock: total,
     inStock: total > 0,
   };
-  await db.put('products', updated);
+
+  await saveProduct(updated);
 }
 
-// CLIENTES (CRM)
+// -----------------------------------------------------------------------------
+// 4. CLIENTES (CRM)
+// -----------------------------------------------------------------------------
 export async function fetchCustomers(): Promise<Customer[]> {
-  const db = await getDB();
-  const customers = await db.getAll('customers');
-  if (customers.length === 0) {
-    const tx = db.transaction('customers', 'readwrite');
-    for (const cust of INITIAL_CUSTOMERS) {
-      await tx.store.put(cust);
+  try {
+    const snap = await getDocs(collection(db, 'customers'));
+    if (snap.empty) {
+      const batch = writeBatch(db);
+      for (const c of INITIAL_CUSTOMERS) {
+        batch.set(doc(db, 'customers', c.id), c);
+      }
+      await batch.commit();
+      return INITIAL_CUSTOMERS;
     }
-    await tx.done;
-    return INITIAL_CUSTOMERS;
+    return snap.docs.map(d => d.data() as Customer).sort((a, b) => b.createdAt - a.createdAt);
+  } catch (err) {
+    console.warn('Usando cache local para clientes:', err);
+    const localDb = await getLocalDB();
+    const list = await localDb.getAll('customers');
+    return list.length > 0 ? list : INITIAL_CUSTOMERS;
   }
-  return customers.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function saveCustomer(customer: Customer): Promise<void> {
-  const db = await getDB();
-  await db.put('customers', customer);
+  try {
+    await setDoc(doc(db, 'customers', customer.id), customer);
+  } catch (err) {
+    console.warn('Erro ao salvar cliente no Firestore:', err);
+  }
+  try {
+    const localDb = await getLocalDB();
+    await localDb.put('customers', customer);
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 export async function removeCustomer(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('customers', id);
-}
-
-// FLUXO DE CAIXA (TRANSAÇÕES)
-export async function fetchTransactions(): Promise<CashTransaction[]> {
-  const db = await getDB();
-  const txs = await db.getAll('cash_transactions');
-  if (txs.length === 0) {
-    const tx = db.transaction('cash_transactions', 'readwrite');
-    for (const t of INITIAL_TRANSACTIONS) {
-      await tx.store.put(t);
-    }
-    await tx.done;
-    return INITIAL_TRANSACTIONS;
+  try {
+    await deleteDoc(doc(db, 'customers', id));
+  } catch (e) {
+    console.warn(e);
   }
-  return txs.sort((a, b) => b.date - a.date);
+  try {
+    const localDb = await getLocalDB();
+    await localDb.delete('customers', id);
+  } catch (e) {
+    console.error(e);
+  }
 }
 
-export async function addTransaction(transaction: CashTransaction): Promise<void> {
-  const db = await getDB();
-  await db.put('cash_transactions', transaction);
-}
-
-export async function removeTransaction(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('cash_transactions', id);
-}
-
-// CADERNINHO DE FIADO (DÍVIDAS)
+// -----------------------------------------------------------------------------
+// 5. CADERNINHO DE FIADO
+// -----------------------------------------------------------------------------
 export async function fetchDebts(): Promise<DebtRecord[]> {
-  const db = await getDB();
-  const debts = await db.getAll('debts');
-  if (debts.length === 0) {
-    const tx = db.transaction('debts', 'readwrite');
-    for (const d of INITIAL_DEBTS) {
-      await tx.store.put(d);
+  try {
+    const snap = await getDocs(collection(db, 'debts'));
+    if (snap.empty) {
+      const batch = writeBatch(db);
+      for (const d of INITIAL_DEBTS) {
+        batch.set(doc(db, 'debts', d.id), d);
+      }
+      await batch.commit();
+      return INITIAL_DEBTS;
     }
-    await tx.done;
-    return INITIAL_DEBTS;
+    return snap.docs.map(d => d.data() as DebtRecord).sort((a, b) => b.createdAt - a.createdAt);
+  } catch (err) {
+    console.warn('Usando cache local para fiados:', err);
+    const localDb = await getLocalDB();
+    const list = await localDb.getAll('debts');
+    return list.length > 0 ? list : INITIAL_DEBTS;
   }
-  return debts.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function saveDebt(debt: DebtRecord): Promise<void> {
-  const db = await getDB();
-  await db.put('debts', debt);
+  try {
+    await setDoc(doc(db, 'debts', debt.id), debt);
+  } catch (e) {
+    console.warn(e);
+  }
+  try {
+    const localDb = await getLocalDB();
+    await localDb.put('debts', debt);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+export async function addDebtPayment(debtId: string, payment: DebtPayment): Promise<void> {
+  let debt: DebtRecord | null = null;
+  try {
+    const snap = await getDoc(doc(db, 'debts', debtId));
+    if (snap.exists()) debt = snap.data() as DebtRecord;
+  } catch {
+    // busca do local
+  }
+  if (!debt) {
+    const localDb = await getLocalDB();
+    debt = (await localDb.get('debts', debtId)) || null;
+  }
+  if (!debt) return;
+
+  const newPayments = [...(debt.payments || []), payment];
+  const totalPaid = newPayments.reduce((acc, p) => acc + p.amount, 0);
+  const remainingAmount = Math.max(0, debt.totalAmount - totalPaid);
+  const newStatus = remainingAmount <= 0.01 ? 'paid' : 'partial';
+
+  const updatedDebt: DebtRecord = {
+    ...debt,
+    payments: newPayments,
+    remainingAmount,
+    status: newStatus,
+  };
+
+  await saveDebt(updatedDebt);
 }
 
 export async function removeDebt(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('debts', id);
+  try {
+    await deleteDoc(doc(db, 'debts', id));
+  } catch (e) {
+    console.warn(e);
+  }
+  try {
+    const localDb = await getLocalDB();
+    await localDb.delete('debts', id);
+  } catch (e) {
+    console.error(e);
+  }
 }
 
-// CONFIGURAÇÕES
+// -----------------------------------------------------------------------------
+// 6. FLUXO DE CAIXA
+// -----------------------------------------------------------------------------
+export async function fetchTransactions(): Promise<CashTransaction[]> {
+  try {
+    const snap = await getDocs(collection(db, 'cash_transactions'));
+    if (snap.empty) {
+      const batch = writeBatch(db);
+      for (const t of INITIAL_TRANSACTIONS) {
+        batch.set(doc(db, 'cash_transactions', t.id), t);
+      }
+      await batch.commit();
+      return INITIAL_TRANSACTIONS;
+    }
+    return snap.docs.map(d => d.data() as CashTransaction).sort((a, b) => b.date - a.date);
+  } catch (err) {
+    console.warn('Usando cache local para transações de caixa:', err);
+    const localDb = await getLocalDB();
+    const list = await localDb.getAll('cash_transactions');
+    return list.length > 0 ? list : INITIAL_TRANSACTIONS;
+  }
+}
+
+export async function saveTransaction(tx: CashTransaction): Promise<void> {
+  try {
+    await setDoc(doc(db, 'cash_transactions', tx.id), tx);
+  } catch (e) {
+    console.warn(e);
+  }
+  try {
+    const localDb = await getLocalDB();
+    await localDb.put('cash_transactions', tx);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+export const addTransaction = saveTransaction;
+
+export async function removeTransaction(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'cash_transactions', id));
+  } catch (e) {
+    console.warn(e);
+  }
+  try {
+    const localDb = await getLocalDB();
+    await localDb.delete('cash_transactions', id);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 7. CONFIGURAÇÕES DA LOJA
+// -----------------------------------------------------------------------------
 export async function fetchSettings(): Promise<StoreSettings> {
-  const db = await getDB();
-  const settings = await db.get('settings', 'store');
-  return settings || DEFAULT_SETTINGS;
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'store'));
+    if (snap.exists()) {
+      return snap.data() as StoreSettings;
+    }
+    await setDoc(doc(db, 'settings', 'store'), DEFAULT_SETTINGS);
+    return DEFAULT_SETTINGS;
+  } catch (err) {
+    console.warn('Usando configurações do cache local:', err);
+    const localDb = await getLocalDB();
+    const settings = await localDb.get('settings', 'store');
+    return settings || DEFAULT_SETTINGS;
+  }
 }
 
 export async function saveSettings(settings: StoreSettings): Promise<void> {
-  const db = await getDB();
-  await db.put('settings', settings, 'store');
+  try {
+    await setDoc(doc(db, 'settings', 'store'), settings);
+  } catch (e) {
+    console.warn(e);
+  }
+  try {
+    const localDb = await getLocalDB();
+    await localDb.put('settings', settings, 'store');
+  } catch (e) {
+    console.error(e);
+  }
 }
 
-// BACKUP COMPLETO
+// -----------------------------------------------------------------------------
+// 8. ESCUTAS EM TEMPO REAL (REALTIME SNAPSHOTS)
+// -----------------------------------------------------------------------------
+export function subscribeProducts(onData: (products: Product[]) => void): () => void {
+  try {
+    const q = query(collection(db, 'products'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const items = snapshot.docs.map(d => d.data() as Product);
+      if (items.length > 0) {
+        onData(items);
+      }
+    }, (err) => {
+      console.warn('Snapshot de produtos indisponível:', err);
+    });
+  } catch {
+    return () => {};
+  }
+}
+
+export function subscribeSettings(onData: (settings: StoreSettings) => void): () => void {
+  try {
+    return onSnapshot(doc(db, 'settings', 'store'), (snap) => {
+      if (snap.exists()) {
+        onData(snap.data() as StoreSettings);
+      }
+    }, (err) => {
+      console.warn('Snapshot de settings indisponível:', err);
+    });
+  } catch {
+    return () => {};
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 9. BACKUP COMPLETO JSON (IMPORTAR / EXPORTAR)
+// -----------------------------------------------------------------------------
 export async function exportCatalogBackup(): Promise<string> {
   const [products, settings, customers, debts, transactions] = await Promise.all([
     fetchProducts(),
@@ -453,7 +697,8 @@ export async function exportCatalogBackup(): Promise<string> {
   ]);
 
   const backup = {
-    version: 2,
+    version: 3,
+    cloudProvider: 'firebase-firestore',
     exportedAt: new Date().toISOString(),
     store: settings,
     products,
@@ -466,52 +711,43 @@ export async function exportCatalogBackup(): Promise<string> {
 
 export async function importCatalogBackup(jsonContent: string): Promise<{ products: number; customers: number; debts: number }> {
   const data = JSON.parse(jsonContent);
-  const db = await getDB();
 
   let pCount = 0;
   if (Array.isArray(data.products)) {
-    const tx = db.transaction('products', 'readwrite');
     for (const prod of data.products) {
       if (prod.id && prod.name) {
-        await tx.store.put(prod);
+        await saveProduct(prod);
         pCount++;
       }
     }
-    await tx.done;
   }
 
   let cCount = 0;
   if (Array.isArray(data.customers)) {
-    const tx = db.transaction('customers', 'readwrite');
     for (const cust of data.customers) {
       if (cust.id && cust.name) {
-        await tx.store.put(cust);
+        await saveCustomer(cust);
         cCount++;
       }
     }
-    await tx.done;
   }
 
   let dCount = 0;
   if (Array.isArray(data.debts)) {
-    const tx = db.transaction('debts', 'readwrite');
     for (const debt of data.debts) {
       if (debt.id && debt.customerName) {
-        await tx.store.put(debt);
+        await saveDebt(debt);
         dCount++;
       }
     }
-    await tx.done;
   }
 
   if (Array.isArray(data.transactions)) {
-    const tx = db.transaction('cash_transactions', 'readwrite');
     for (const t of data.transactions) {
       if (t.id && t.amount) {
-        await tx.store.put(t);
+        await saveTransaction(t);
       }
     }
-    await tx.done;
   }
 
   if (data.store) {

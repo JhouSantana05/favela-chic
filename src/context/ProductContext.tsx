@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type { Product, ProductCategory, StoreSettings } from '../types';
-import { fetchProducts, saveProduct, removeProduct, fetchSettings, saveSettings } from '../services/storage';
+import { fetchProducts, saveProduct, removeProduct, fetchSettings, saveSettings, subscribeProducts, subscribeSettings } from '../services/storage';
 
 interface ProductContextType {
   products: Product[];
@@ -44,7 +44,7 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setProducts(storedProducts);
       setSettings(storedSettings);
     } catch (err) {
-      console.error('Erro ao carregar dados locais:', err);
+      console.error('Erro ao carregar dados:', err);
     } finally {
       setIsLoading(false);
     }
@@ -52,6 +52,19 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   useEffect(() => {
     loadData();
+
+    // Inscrição em tempo real no Firestore
+    const unsubProducts = subscribeProducts((updatedProducts) => {
+      setProducts(updatedProducts);
+    });
+    const unsubSettings = subscribeSettings((updatedSettings) => {
+      setSettings(updatedSettings);
+    });
+
+    return () => {
+      unsubProducts();
+      unsubSettings();
+    };
   }, [loadData]);
 
   const addProduct = async (productData: Omit<Product, 'id' | 'createdAt'> & { id?: string }): Promise<Product> => {

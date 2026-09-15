@@ -497,7 +497,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 className="bg-amber-500 hover:bg-amber-400 text-black font-extrabold px-6 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 active:scale-95 transition disabled:opacity-50"
               >
                 <Check className="w-4 h-4" />
-                <span>{isSaving ? 'Salvando...' : initialProduct ? 'Atualizar Peça' : 'Cadastrar no Catálogo'}</span>
+                <span>{isSaving ? 'Salvando na Nuvem...' : initialProduct ? 'Atualizar Peça' : 'Cadastrar no Catálogo'}</span>
               </button>
             </div>
 
