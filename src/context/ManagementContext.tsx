@@ -11,6 +11,9 @@ import {
   saveDebt,
   removeDebt,
   decreaseProductStock,
+  INITIAL_CUSTOMERS,
+  INITIAL_TRANSACTIONS,
+  INITIAL_DEBTS,
 } from '../services/storage';
 import { useProducts } from './ProductContext';
 
@@ -36,7 +39,7 @@ interface ManagementContextType {
   createDebt: (debt: Omit<DebtRecord, 'id' | 'createdAt' | 'remainingAmount' | 'status' | 'payments'>) => Promise<DebtRecord>;
   recordDebtPayment: (debtId: string, amount: number, paymentMethod: PaymentMethod, notes?: string) => Promise<void>;
   deleteDebt: (id: string) => Promise<void>;
-  // Venda no PDV (Balcão)
+  // PDV Rápido
   processPOSSale: (params: {
     items: CartItem[];
     total: number;
@@ -51,14 +54,13 @@ const ManagementContext = createContext<ManagementContextType | undefined>(undef
 
 export const ManagementProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { reloadProducts } = useProducts();
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [transactions, setTransactions] = useState<CashTransaction[]>([]);
-  const [debts, setDebts] = useState<DebtRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
+  const [transactions, setTransactions] = useState<CashTransaction[]>(INITIAL_TRANSACTIONS);
+  const [debts, setDebts] = useState<DebtRecord[]>(INITIAL_DEBTS);
+  const [isLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      setIsLoading(true);
       const [storedCust, storedTx, storedDebts] = await Promise.all([
         fetchCustomers(),
         fetchTransactions(),
@@ -69,8 +71,6 @@ export const ManagementProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setDebts(storedDebts);
     } catch (err) {
       console.error('Erro ao carregar dados de gestão:', err);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 

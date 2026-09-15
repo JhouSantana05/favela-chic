@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type { Product, ProductCategory, StoreSettings } from '../types';
-import { fetchProducts, saveProduct, removeProduct, fetchSettings, saveSettings, subscribeProducts, subscribeSettings } from '../services/storage';
+import { fetchProducts, saveProduct, removeProduct, fetchSettings, saveSettings, subscribeProducts, subscribeSettings, INITIAL_PRODUCTS, DEFAULT_SETTINGS } from '../services/storage';
 
 interface ProductContextType {
   products: Product[];
@@ -21,22 +21,14 @@ interface ProductContextType {
 const ProductContext = createContext<ProductContextType | undefined>(undefined);
 
 export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [settings, setSettings] = useState<StoreSettings>({
-    storeName: 'Favela Chic',
-    tagline: 'O melhor do Streetwear & Moda Urbana do Bairro',
-    whatsappNumber: '5511999999999',
-    instagram: '@favelachic.oficial',
-    address: 'Rua Principal do Bairro, 120 - Loja 2',
-    deliveryFee: 10,
-  });
-  const [isLoading, setIsLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [settings, setSettings] = useState<StoreSettings>(DEFAULT_SETTINGS);
+  const [isLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'todas'>('todas');
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadData = useCallback(async () => {
     try {
-      setIsLoading(true);
       const [storedProducts, storedSettings] = await Promise.all([
         fetchProducts(),
         fetchSettings(),
@@ -45,8 +37,6 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setSettings(storedSettings);
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 

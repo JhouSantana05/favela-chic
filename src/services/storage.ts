@@ -4,11 +4,9 @@ import { db, storage } from './firebase';
 import {
   collection,
   doc,
-  getDocs,
   getDoc,
   setDoc,
   deleteDoc,
-  writeBatch,
   query,
   orderBy,
   onSnapshot
@@ -337,28 +335,26 @@ export async function uploadImageToStorage(dataUrl: string, pathPrefix = 'produc
 // 3. PRODUTOS (FIRESTORE + CACHE LOCAL)
 // -----------------------------------------------------------------------------
 export async function fetchProducts(): Promise<Product[]> {
+  // 1. Lê do cache local imediatamente (0 a 5ms) para velocidade máxima
   try {
-    const snapshot = await getDocs(collection(db, 'products'));
-    if (snapshot.empty) {
-      // Primeira inicialização na nuvem: sobe os produtos de exemplo
-      const batch = writeBatch(db);
-      for (const item of INITIAL_PRODUCTS) {
-        batch.set(doc(db, 'products', item.id), item);
-      }
-      await batch.commit();
-      return INITIAL_PRODUCTS;
-    }
-    const products = snapshot.docs.map(d => d.data() as Product);
-    return products.sort((a, b) => b.createdAt - a.createdAt);
-  } catch (err) {
-    console.warn('Firestore offline ou em ativação, recorrendo ao cache local:', err);
     const localDb = await getLocalDB();
-    const products = await localDb.getAll('products');
-    if (products.length === 0) {
-      return INITIAL_PRODUCTS;
+    const localProducts = await localDb.getAll('products');
+    if (localProducts.length > 0) {
+      return localProducts.sort((a, b) => b.createdAt - a.createdAt);
     }
-    return products.sort((a, b) => b.createdAt - a.createdAt);
+  } catch (err) {
+    console.warn('Erro ao ler cache local de produtos:', err);
   }
+
+  // 2. Se o cache local estiver vazio (primeiro acesso), popula o cache local com os iniciais
+  try {
+    const localDb = await getLocalDB();
+    for (const item of INITIAL_PRODUCTS) {
+      await localDb.put('products', item);
+    }
+  } catch {}
+
+  return INITIAL_PRODUCTS;
 }
 
 export async function saveProduct(product: Product): Promise<void> {
@@ -462,49 +458,43 @@ export async function decreaseProductStock(
 // -----------------------------------------------------------------------------
 export async function fetchCustomers(): Promise<Customer[]> {
   try {
-    const snap = await getDocs(collection(db, 'customers'));
-    if (snap.empty) {
-      const batch = writeBatch(db);
-      for (const c of INITIAL_CUSTOMERS) {
-        batch.set(doc(db, 'customers', c.id), c);
-      }
-      await batch.commit();
-      return INITIAL_CUSTOMERS;
-    }
-    return snap.docs.map(d => d.data() as Customer).sort((a, b) => b.createdAt - a.createdAt);
-  } catch (err) {
-    console.warn('Usando cache local para clientes:', err);
     const localDb = await getLocalDB();
     const list = await localDb.getAll('customers');
-    return list.length > 0 ? list : INITIAL_CUSTOMERS;
-  }
+    if (list.length > 0) {
+      return list.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    for (const c of INITIAL_CUSTOMERS) {
+      await localDb.put('customers', c);
+    }
+  } catch {}
+  return INITIAL_CUSTOMERS;
 }
 
 export async function saveCustomer(customer: Customer): Promise<void> {
-  try {
-    await setDoc(doc(db, 'customers', customer.id), customer);
-  } catch (err) {
-    console.warn('Erro ao salvar cliente no Firestore:', err);
-  }
   try {
     const localDb = await getLocalDB();
     await localDb.put('customers', customer);
   } catch (e) {
     console.error(e);
   }
+  try {
+    await setDoc(doc(db, 'customers', customer.id), customer);
+  } catch (err) {
+    console.warn('Erro ao salvar cliente no Firestore:', err);
+  }
 }
 
 export async function removeCustomer(id: string): Promise<void> {
-  try {
-    await deleteDoc(doc(db, 'customers', id));
-  } catch (e) {
-    console.warn(e);
-  }
   try {
     const localDb = await getLocalDB();
     await localDb.delete('customers', id);
   } catch (e) {
     console.error(e);
+  }
+  try {
+    await deleteDoc(doc(db, 'customers', id));
+  } catch (e) {
+    console.warn(e);
   }
 }
 
@@ -513,50 +503,35 @@ export async function removeCustomer(id: string): Promise<void> {
 // -----------------------------------------------------------------------------
 export async function fetchDebts(): Promise<DebtRecord[]> {
   try {
-    const snap = await getDocs(collection(db, 'debts'));
-    if (snap.empty) {
-      const batch = writeBatch(db);
-      for (const d of INITIAL_DEBTS) {
-        batch.set(doc(db, 'debts', d.id), d);
-      }
-      await batch.commit();
-      return INITIAL_DEBTS;
-    }
-    return snap.docs.map(d => d.data() as DebtRecord).sort((a, b) => b.createdAt - a.createdAt);
-  } catch (err) {
-    console.warn('Usando cache local para fiados:', err);
     const localDb = await getLocalDB();
     const list = await localDb.getAll('debts');
-    return list.length > 0 ? list : INITIAL_DEBTS;
-  }
+    if (list.length > 0) {
+      return list.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    for (const d of INITIAL_DEBTS) {
+      await localDb.put('debts', d);
+    }
+  } catch {}
+  return INITIAL_DEBTS;
 }
 
 export async function saveDebt(debt: DebtRecord): Promise<void> {
-  try {
-    await setDoc(doc(db, 'debts', debt.id), debt);
-  } catch (e) {
-    console.warn(e);
-  }
   try {
     const localDb = await getLocalDB();
     await localDb.put('debts', debt);
   } catch (e) {
     console.error(e);
   }
+  try {
+    await setDoc(doc(db, 'debts', debt.id), debt);
+  } catch (e) {
+    console.warn(e);
+  }
 }
 
 export async function addDebtPayment(debtId: string, payment: DebtPayment): Promise<void> {
-  let debt: DebtRecord | null = null;
-  try {
-    const snap = await getDoc(doc(db, 'debts', debtId));
-    if (snap.exists()) debt = snap.data() as DebtRecord;
-  } catch {
-    // busca do local
-  }
-  if (!debt) {
-    const localDb = await getLocalDB();
-    debt = (await localDb.get('debts', debtId)) || null;
-  }
+  const localDb = await getLocalDB();
+  let debt: DebtRecord | null = (await localDb.get('debts', debtId)) || null;
   if (!debt) return;
 
   const newPayments = [...(debt.payments || []), payment];
@@ -576,15 +551,15 @@ export async function addDebtPayment(debtId: string, payment: DebtPayment): Prom
 
 export async function removeDebt(id: string): Promise<void> {
   try {
-    await deleteDoc(doc(db, 'debts', id));
-  } catch (e) {
-    console.warn(e);
-  }
-  try {
     const localDb = await getLocalDB();
     await localDb.delete('debts', id);
   } catch (e) {
     console.error(e);
+  }
+  try {
+    await deleteDoc(doc(db, 'debts', id));
+  } catch (e) {
+    console.warn(e);
   }
 }
 
@@ -593,35 +568,29 @@ export async function removeDebt(id: string): Promise<void> {
 // -----------------------------------------------------------------------------
 export async function fetchTransactions(): Promise<CashTransaction[]> {
   try {
-    const snap = await getDocs(collection(db, 'cash_transactions'));
-    if (snap.empty) {
-      const batch = writeBatch(db);
-      for (const t of INITIAL_TRANSACTIONS) {
-        batch.set(doc(db, 'cash_transactions', t.id), t);
-      }
-      await batch.commit();
-      return INITIAL_TRANSACTIONS;
-    }
-    return snap.docs.map(d => d.data() as CashTransaction).sort((a, b) => b.date - a.date);
-  } catch (err) {
-    console.warn('Usando cache local para transações de caixa:', err);
     const localDb = await getLocalDB();
     const list = await localDb.getAll('cash_transactions');
-    return list.length > 0 ? list : INITIAL_TRANSACTIONS;
-  }
+    if (list.length > 0) {
+      return list.sort((a, b) => b.date - a.date);
+    }
+    for (const t of INITIAL_TRANSACTIONS) {
+      await localDb.put('cash_transactions', t);
+    }
+  } catch {}
+  return INITIAL_TRANSACTIONS;
 }
 
 export async function saveTransaction(tx: CashTransaction): Promise<void> {
-  try {
-    await setDoc(doc(db, 'cash_transactions', tx.id), tx);
-  } catch (e) {
-    console.warn(e);
-  }
   try {
     const localDb = await getLocalDB();
     await localDb.put('cash_transactions', tx);
   } catch (e) {
     console.error(e);
+  }
+  try {
+    await setDoc(doc(db, 'cash_transactions', tx.id), tx);
+  } catch (e) {
+    console.warn(e);
   }
 }
 
@@ -629,15 +598,15 @@ export const addTransaction = saveTransaction;
 
 export async function removeTransaction(id: string): Promise<void> {
   try {
-    await deleteDoc(doc(db, 'cash_transactions', id));
-  } catch (e) {
-    console.warn(e);
-  }
-  try {
     const localDb = await getLocalDB();
     await localDb.delete('cash_transactions', id);
   } catch (e) {
     console.error(e);
+  }
+  try {
+    await deleteDoc(doc(db, 'cash_transactions', id));
+  } catch (e) {
+    console.warn(e);
   }
 }
 
@@ -646,31 +615,25 @@ export async function removeTransaction(id: string): Promise<void> {
 // -----------------------------------------------------------------------------
 export async function fetchSettings(): Promise<StoreSettings> {
   try {
-    const snap = await getDoc(doc(db, 'settings', 'store'));
-    if (snap.exists()) {
-      return snap.data() as StoreSettings;
-    }
-    await setDoc(doc(db, 'settings', 'store'), DEFAULT_SETTINGS);
-    return DEFAULT_SETTINGS;
-  } catch (err) {
-    console.warn('Usando configurações do cache local:', err);
     const localDb = await getLocalDB();
     const settings = await localDb.get('settings', 'store');
-    return settings || DEFAULT_SETTINGS;
-  }
+    if (settings) return settings;
+    await localDb.put('settings', DEFAULT_SETTINGS, 'store');
+  } catch {}
+  return DEFAULT_SETTINGS;
 }
 
 export async function saveSettings(settings: StoreSettings): Promise<void> {
-  try {
-    await setDoc(doc(db, 'settings', 'store'), settings);
-  } catch (e) {
-    console.warn(e);
-  }
   try {
     const localDb = await getLocalDB();
     await localDb.put('settings', settings, 'store');
   } catch (e) {
     console.error(e);
+  }
+  try {
+    await setDoc(doc(db, 'settings', 'store'), settings);
+  } catch (e) {
+    console.warn(e);
   }
 }
 
